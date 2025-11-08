@@ -1,0 +1,50 @@
+name: "최강 전략" 일일 신호 생성 (Sharpe 1.28)
+
+on:
+  schedule:
+    # 매주 월~금요일, 23:00 UTC (한국 시간(KST) 아침 8시)에 실행
+    # (월요일 아침 8시(KST) = 일요일 23:00 UTC -> 금요일 장 마감 데이터 기준)
+    # (토요일 아침 8시(KST) = 금요일 23:00 UTC -> 금요일 장 마감 데이터 기준)
+    # 일요일/월요일 아침에는 실행되지 않습니다. (토/일 장이 열리지 않으므로)
+    - cron: '0 23 * * 0-4' # (일~목 23:00 UTC = 월~금 아침 8시 KST)
+                         # [수정] 금요일 장 마감은 토요일 8시에 받아야 하므로 '0 23 * * 0-5' (일~금 UTC)
+    
+  # 수동 실행 (Action 탭에서 'Run workflow' 버튼)
+  workflow_dispatch:
+
+jobs:
+  build_and_send_signal:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. GitHub 저장소의 코드를 서버로 가져옵니다
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 2. Python 3.10 환경을 설정합니다
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      # 3. 필요한 라이브러리(yfinance 등)를 설치합니다
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # 4. 일일 신호 생성 스크립트(Python)를 실행하고, 그 결과를 'REPORT' 변수에 저장합니다
+      - name: Run Strategy Script and Capture Output
+        id: strategy_output
+        run: |
+          # Python 스크립트를 실행하고, 그 출력을 GITHUB_OUTPUT에 'report'라는 이름으로 저장
+          echo "report=$(python daily_signal_generator.py)" >> $GITHUB_OUTPUT
+
+      # 5. 텔레그램으로 4번 단계의 'REPORT' 변수 내용을 전송합니다
+      - name: Send Telegram Message
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}       # (받는 사람 챗 ID)
+          token: ${{ secrets.TELEGRAM_TOKEN }} # (내 텔레그램 봇 토큰)
+          message: |
+            ${{ steps.strategy_output.outputs.report }}
